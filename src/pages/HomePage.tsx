@@ -21,10 +21,10 @@ export function HomePage() {
       </header>
 
       <section className="card hero-card">
-        <h1>Vyfoť věc. Sestav inzerát. Vlož ho na Vinted.</h1>
+        <h1>Vyfoť věc. AI doplní zbytek.</h1>
         <p>
-          Aplikace nic na Vinted sama nevystaví. Připraví název, popis a fotky. Zbytek uděláš
-          ručně.
+          Vyfoť kousek a visačku. Appka přečte značku, barvu a velikost, najde přibližnou cenu a
+          napíše český inzerát. Na Vinted to vložíš ručně.
         </p>
         <Link className="btn btn-primary" to="/nova">
           Přidat věc

@@ -24,6 +24,20 @@ function emptyItem(): Item {
     note: '',
     title: '',
     description: '',
+    priceNote: '',
+    missingInformation: [],
+    detectedLabelText: [],
+  }
+}
+
+function normalize(item: Partial<Item>): Item {
+  return {
+    ...emptyItem(),
+    ...item,
+    photos: item.photos ?? [],
+    missingInformation: item.missingInformation ?? [],
+    detectedLabelText: item.detectedLabelText ?? [],
+    priceNote: item.priceNote ?? '',
   }
 }
 
@@ -31,8 +45,8 @@ function readAll(): Item[] {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return []
-    const parsed = JSON.parse(raw) as Item[]
-    return Array.isArray(parsed) ? parsed : []
+    const parsed = JSON.parse(raw) as Partial<Item>[]
+    return Array.isArray(parsed) ? parsed.map(normalize) : []
   } catch {
     return []
   }

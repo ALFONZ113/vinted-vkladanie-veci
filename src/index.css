@@ -132,6 +132,11 @@ a {
   width: 100%;
 }
 
+.btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .btn-accent {
   background: var(--accent);
   color: #fffaf3;

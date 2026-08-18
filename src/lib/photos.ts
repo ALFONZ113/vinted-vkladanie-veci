@@ -40,6 +40,25 @@ export async function fileToDataUrl(file: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', JPEG_QUALITY)
 }
 
+export async function shrinkForAi(dataUrl: string): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('Fotku se nepodařilo zmenšit.'))
+    el.src = dataUrl
+  })
+
+  const maxEdge = 1280
+  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return dataUrl
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.72)
+}
+
 export function downloadDataUrl(dataUrl: string, filename: string) {
   const link = document.createElement('a')
   link.href = dataUrl

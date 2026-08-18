@@ -1,30 +1,27 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { analyzePhotos } from '../lib/analyze'
 import { uid } from '../lib/id'
-import { buildListing, missingForListing, suggestPrices } from '../lib/listing'
-import { downloadDataUrl, fileToDataUrl } from '../lib/photos'
+import { downloadDataUrl, fileToDataUrl, shrinkForAi } from '../lib/photos'
 import { itemsStore } from '../lib/storage'
-import {
-  CONDITIONS,
-  ITEM_TYPES,
-  PHOTO_KINDS,
-  TARGET_GROUPS,
-  VINTED_NEW_ITEM_URL,
-  type Item,
-  type PhotoKind,
-} from '../types'
+import { VINTED_NEW_ITEM_URL, type Item } from '../types'
 
-type Step = 'photos' | 'details' | 'listing'
+const STEPS = [
+  'Čtu visačky a loga',
+  'Rozpoznávám kousek',
+  'Hledám podobné věci a cenu',
+  'Píšu název a popis',
+]
 
 export function ItemPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [item, setItem] = useState<Item | null>(null)
-  const [step, setStep] = useState<Step>('photos')
-  const [kind, setKind] = useState<PhotoKind>('front')
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [stepLabel, setStepLabel] = useState(STEPS[0])
 
   useEffect(() => {
     if (id) {
@@ -39,9 +36,6 @@ export function ItemPage() {
     const created = itemsStore.create()
     navigate(`/vec/${created.id}`, { replace: true })
   }, [id, navigate])
-
-  const suggestions = useMemo(() => (item ? suggestPrices(item) : []), [item])
-  const missing = item ? missingForListing(item) : []
 
   const persist = (next: Item) => {
     const saved = itemsStore.save(next)
@@ -64,7 +58,7 @@ export function ItemPage() {
         added.push({
           id: uid(),
           dataUrl: await fileToDataUrl(file),
-          kind,
+          kind: 'other' as const,
         })
       }
       persist({ ...item, photos: [...item.photos, ...added] })
@@ -80,15 +74,46 @@ export function ItemPage() {
     persist({ ...item, photos: item.photos.filter((photo) => photo.id !== photoId) })
   }
 
-  const compose = () => {
-    if (!item) return
-    const listing = buildListing(item)
-    persist({
-      ...item,
-      title: item.title.trim() || listing.title,
-      description: item.description.trim() || listing.description,
-    })
-    setStep('listing')
+  const prepare = async () => {
+    if (!item || item.photos.length === 0) {
+      setError('Nejdřív přidej aspoň jednu fotku, ideálně i visačku.')
+      return
+    }
+    setError(null)
+    setAnalyzing(true)
+    let tick = 0
+    setStepLabel(STEPS[0])
+    const timer = window.setInterval(() => {
+      tick = (tick + 1) % STEPS.length
+      setStepLabel(STEPS[tick])
+    }, 2200)
+
+    try {
+      const images = await Promise.all(item.photos.slice(0, 8).map((photo) => shrinkForAi(photo.dataUrl)))
+      const result = await analyzePhotos(images)
+      persist({
+        ...item,
+        targetGroup: result.targetGroup,
+        itemType: result.itemType,
+        brand: result.brand,
+        size: result.size,
+        color: result.color,
+        material: result.material,
+        condition: result.condition,
+        defects: result.defects,
+        title: result.title,
+        description: result.description,
+        price: result.price,
+        priceNote: result.priceNote,
+        missingInformation: result.missingInformation,
+        detectedLabelText: result.detectedLabelText,
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Analýza se nezdařila.')
+    } finally {
+      window.clearInterval(timer)
+      setAnalyzing(false)
+    }
   }
 
   const copyText = async (label: string, value: string) => {
@@ -99,13 +124,7 @@ export function ItemPage() {
 
   const copyAll = async () => {
     if (!item) return
-    const text = [
-      item.title,
-      '',
-      item.description,
-      '',
-      item.price ? `Cena: ${item.price} Kč` : '',
-    ]
+    const text = [item.title, '', item.description, '', item.price ? `Cena: ${item.price} Kč` : '']
       .filter(Boolean)
       .join('\n')
     await copyText('vše', text)
@@ -119,6 +138,8 @@ export function ItemPage() {
   }
 
   if (!item) return null
+
+  const ready = Boolean(item.title || item.description)
 
   return (
     <>
@@ -139,184 +160,74 @@ export function ItemPage() {
         </button>
       </header>
 
-      <div className="steps">
-        <button className={`step ${step === 'photos' ? 'active' : ''}`} onClick={() => setStep('photos')}>
-          <small>1</small>
-          Fotky
-        </button>
-        <button className={`step ${step === 'details' ? 'active' : ''}`} onClick={() => setStep('details')}>
-          <small>2</small>
-          Údaje
-        </button>
-        <button className={`step ${step === 'listing' ? 'active' : ''}`} onClick={() => setStep('listing')}>
-          <small>3</small>
-          Inzerát
-        </button>
-      </div>
-
       {error && <div className="error">{error}</div>}
 
-      {step === 'photos' && (
-        <section className="card section">
-          <h2>Vyfoť nebo nahraj fotky</h2>
-          <div className="kind-row">
-            {PHOTO_KINDS.map((option) => (
-              <button
-                key={option.id}
-                className={`chip ${kind === option.id ? 'active' : ''}`}
-                onClick={() => setKind(option.id)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <p className="muted">
-            Teď přidáváš: {PHOTO_KINDS.find((option) => option.id === kind)?.hint}. Ideálně 5–8 fotek.
-          </p>
-          <div className="photo-grid">
-            <label className="photo-tile add-photo">
-              {busy ? 'Nahrávám…' : 'Foto / galerie'}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                hidden
-                onChange={(event) => {
-                  void onFiles(event.target.files)
-                  event.target.value = ''
-                }}
-              />
-            </label>
-            {item.photos.map((photo) => (
-              <div key={photo.id} className="photo-tile">
-                <img src={photo.dataUrl} alt="" />
-                <button className="remove" onClick={() => removePhoto(photo.id)} type="button">
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="btn-row" style={{ marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={() => setStep('details')}>
-              Pokračovat k údajům
-            </button>
-          </div>
-        </section>
-      )}
-
-      {step === 'details' && (
-        <section className="card section">
-          <h2>Doplň jen to, co víš</h2>
-          <label className="field">
-            <span>Pro koho</span>
-            <select value={item.targetGroup} onChange={(e) => patch({ targetGroup: e.target.value })}>
-              <option value="">Nevybráno</option>
-              {TARGET_GROUPS.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
+      <section className="card section">
+        <h2>Jen vyfoť věc</h2>
+        <p className="muted">
+          Stačí fotky. Nejvíc pomůže ostře vyfocená visačka se značkou a velikostí. Zbytek doplní
+          AI.
+        </p>
+        <div className="photo-grid">
+          <label className="photo-tile add-photo">
+            {busy ? 'Nahrávám…' : 'Foto / galerie'}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              hidden
+              onChange={(event) => {
+                void onFiles(event.target.files)
+                event.target.value = ''
+              }}
+            />
           </label>
+          {item.photos.map((photo) => (
+            <div key={photo.id} className="photo-tile">
+              <img src={photo.dataUrl} alt="" />
+              <button className="remove" onClick={() => removePhoto(photo.id)} type="button">
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <button className="btn btn-primary" disabled={analyzing || item.photos.length === 0} onClick={() => void prepare()}>
+            {analyzing ? stepLabel : ready ? 'Připravit znovu z fotek' : 'Připravit inzerát z fotek'}
+          </button>
+        </div>
+      </section>
+
+      {ready && (
+        <section className="card section">
+          <h2>Hotový inzerát</h2>
+          {item.detectedLabelText.length > 0 && (
+            <p className="muted">Přečtené visačky: {item.detectedLabelText.join(' · ')}</p>
+          )}
+          {item.missingInformation.length > 0 && (
+            <div className="notice">AI si není jistá: {item.missingInformation.join(', ')}.</div>
+          )}
+          {item.priceNote && <p className="muted">{item.priceNote}</p>}
           <label className="field">
-            <span>Typ</span>
-            <select value={item.itemType} onChange={(e) => patch({ itemType: e.target.value })}>
-              <option value="">Nevybráno</option>
-              {ITEM_TYPES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
+            <span>Název</span>
+            <input value={item.title} onChange={(e) => patch({ title: e.target.value })} />
           </label>
           <label className="field">
             <span>Značka</span>
-            <input
-              value={item.brand}
-              placeholder="Jen když je na štítku"
-              onChange={(e) => patch({ brand: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>Velikost</span>
-            <input value={item.size} onChange={(e) => patch({ size: e.target.value })} />
+            <input value={item.brand} onChange={(e) => patch({ brand: e.target.value })} />
           </label>
           <label className="field">
             <span>Barva</span>
             <input value={item.color} onChange={(e) => patch({ color: e.target.value })} />
           </label>
           <label className="field">
-            <span>Materiál</span>
-            <input value={item.material} onChange={(e) => patch({ material: e.target.value })} />
+            <span>Velikost</span>
+            <input value={item.size} onChange={(e) => patch({ size: e.target.value })} />
           </label>
           <label className="field">
-            <span>Stav</span>
-            <select value={item.condition} onChange={(e) => patch({ condition: e.target.value })}>
-              <option value="">Nevybráno</option>
-              {CONDITIONS.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Vady</span>
-            <input
-              value={item.defects}
-              placeholder="Díra, žmolky, flek…"
-              onChange={(e) => patch({ defects: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>Původní cena v Kč</span>
-            <input
-              inputMode="numeric"
-              value={item.originalPrice}
-              onChange={(e) => patch({ originalPrice: e.target.value })}
-            />
-          </label>
-          {suggestions.length > 0 && (
-            <div className="price-pills">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion.label}
-                  type="button"
-                  onClick={() => patch({ price: String(suggestion.amount) })}
-                >
-                  {suggestion.label}: {suggestion.amount} Kč
-                </button>
-              ))}
-            </div>
-          )}
-          <label className="field">
-            <span>Tvoje cena v Kč</span>
-            <input
-              inputMode="numeric"
-              value={item.price}
-              onChange={(e) => patch({ price: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>Poznámka</span>
-            <input
-              value={item.note}
-              placeholder="Třeba: prané, kouřeny nebylo"
-              onChange={(e) => patch({ note: e.target.value })}
-            />
-          </label>
-          {missing.length > 0 && (
-            <div className="notice">Ještě chybí: {missing.join(', ')}. Můžeš pokračovat i tak.</div>
-          )}
-          <div className="btn-row" style={{ marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={compose}>
-              Sestavit inzerát
-            </button>
-          </div>
-        </section>
-      )}
-
-      {step === 'listing' && (
-        <section className="card section">
-          <h2>Zkontroluj a zkopíruj</h2>
-          <label className="field">
-            <span>Název</span>
-            <input value={item.title} onChange={(e) => patch({ title: e.target.value })} />
+            <span>Cena v Kč</span>
+            <input inputMode="numeric" value={item.price} onChange={(e) => patch({ price: e.target.value })} />
           </label>
           <label className="field">
             <span>Popis</span>

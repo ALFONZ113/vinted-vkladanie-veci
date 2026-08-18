@@ -27,6 +27,9 @@ export type Item = {
   note: string
   title: string
   description: string
+  priceNote: string
+  missingInformation: string[]
+  detectedLabelText: string[]
 }
 
 export const PHOTO_KINDS: { id: PhotoKind; label: string; hint: string }[] = [
