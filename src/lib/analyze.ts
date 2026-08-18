@@ -18,7 +18,7 @@ export type AnalyzeResult = {
 }
 
 function analyzeUrl(): string {
-  return import.meta.env.VITE_ANALYZE_URL || '/api/analyze'
+  return import.meta.env.VITE_ANALYZE_URL || 'https://vinted-analyze.reliable-timer.workers.dev'
 }
 
 export async function analyzePhotos(images: string[]): Promise<AnalyzeResult> {
