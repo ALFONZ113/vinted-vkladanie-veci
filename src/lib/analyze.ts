@@ -18,15 +18,22 @@ export type AnalyzeResult = {
 }
 
 function analyzeUrl(): string {
-  return import.meta.env.VITE_ANALYZE_URL || 'https://vinted-analyze.reliable-timer.workers.dev'
+  return import.meta.env.VITE_ANALYZE_URL || 'https://vinted-analyze.incandescent-ornament.workers.dev'
 }
 
 export async function analyzePhotos(images: string[]): Promise<AnalyzeResult> {
-  const response = await fetch(analyzeUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ images }),
-  })
+  let response: Response
+  try {
+    response = await fetch(analyzeUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images: images.slice(0, 4) }),
+    })
+  } catch {
+    throw new Error(
+      'AI server právě není dostupný. Zkus to za chvíli znovu, nebo otevři appku znovu v nové kartě.',
+    )
+  }
 
   const payload = (await response.json().catch(() => ({}))) as AnalyzeResult & {
     error?: string
